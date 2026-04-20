@@ -5,3 +5,18 @@ services:
     restart: unless-stopped
     ports:
       - "4444:80"
+    depends_on:
+      - status-api
+
+  status-api:
+    build: ./status-api
+    container_name: status-api
+    restart: unless-stopped
+    cap_add:
+      - NET_RAW  # для ICMP ping
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "true"
+

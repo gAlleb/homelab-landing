@@ -13,19 +13,46 @@ function isLocalAddr(url: string): boolean {
   try {
     const h = new URL(url).hostname
     return /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.|127\.|localhost$)/.test(h)
-      || /^\[?[0-9a-f]{1,4}:/.test(h)
+      || /^\[?[0-9a-f]{1,4}:/.test(h)           // IPv6 (Yggdrasil и т.д.)
+      || /\.(local|lan|home|internal|localdomain)$/.test(h) // mDNS и локальные домены
+      || !h.includes('.')                         // single-label: docker1, proxmox, truenas
   } catch { return false }
 }
 
+// Проверка сервиса по URL (карточка целиком)
 async function checkStatus(url: string) {
-  if (isLocalAddr(url)) { setStatus(url, 'unknown'); return }
   setStatus(url, 'checking')
+  if (isLocalAddr(url)) {
+    try {
+      const res = await fetch(`/api/status?url=${encodeURIComponent(url)}`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(6000),
+      })
+      const data = res.ok ? await res.json() : null
+      setStatus(url, data?.status === 'up' ? 'up' : 'down')
+    }
+    catch { setStatus(url, 'unknown') }
+    return
+  }
   try {
     await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(5000) })
     setStatus(url, 'up')
-  } catch {
-    setStatus(url, 'down')
   }
+  catch { setStatus(url, 'down') }
+}
+
+// TCP-пинг IP-адреса (вкладка IPs) — без привязки к HTTP/порту
+async function checkIp(addr: string) {
+  setStatus(addr, 'checking')
+  try {
+    const res = await fetch(`/api/ping?host=${encodeURIComponent(addr)}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(6000),
+    })
+    const data = res.ok ? await res.json() : null
+    setStatus(addr, data?.status === 'up' ? 'up' : 'down')
+  }
+  catch { setStatus(addr, 'unknown') }
 }
 
 const RECHECK_MS = 150_000 // 2.5 минуты
@@ -45,7 +72,10 @@ const checkedAgoText = computed(() => {
 
 function runChecks() {
   lastCheckTime.value = Date.now()
-  props.links.forEach(l => checkStatus(l.url))
+  props.links.forEach((l) => {
+    checkStatus(l.url)
+    l.ips?.forEach(ip => checkIp(ip.addr))
+  })
 }
 
 let recheckTimer: ReturnType<typeof setInterval>
@@ -307,17 +337,36 @@ function toggleExpand(url: string) {
                 <p class="font-semibold text-zinc-900 dark:text-white leading-tight truncate">{{ link.name }}</p>
                 <p class="text-sm text-zinc-500 dark:text-zinc-400 truncate mt-0.5">{{ link.description }}</p>
               </div>
-              <!-- Status dot -->
-              <span
-                class="flex-shrink-0 w-2 h-2 rounded-full ring-2 ring-white dark:ring-zinc-900 transition-all duration-500"
-                :class="{
-                  'bg-green-400 shadow-[0_0_7px_2px_rgba(74,222,128,0.7)]': statuses[link.url] === 'up',
-                  'bg-red-400': statuses[link.url] === 'down',
-                  'bg-zinc-400 dark:bg-zinc-500 animate-pulse': statuses[link.url] === 'checking',
-                  'bg-zinc-300 dark:bg-zinc-600': !statuses[link.url] || statuses[link.url] === 'unknown',
-                }"
-                :title="({ up: 'Онлайн', down: 'Недоступен', checking: 'Проверка…', unknown: 'Локальный' } as Record<string, string>)[statuses[link.url] ?? 'unknown']"
-              />
+              <!-- Status indicators group -->
+              <div class="flex flex-col items-center gap-1.5">
+                <!-- Main Service Status (URL) -->
+                <span
+                  class="flex-shrink-0 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-zinc-900 transition-all duration-500"
+                  :class="{
+                    'bg-green-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.5)]': statuses[link.url] === 'up',
+                    'bg-red-400': statuses[link.url] === 'down',
+                    'bg-zinc-400 dark:bg-zinc-500 animate-pulse': statuses[link.url] === 'checking',
+                    'bg-zinc-300 dark:bg-zinc-600': !statuses[link.url] || statuses[link.url] === 'unknown',
+                  }"
+                  :title="'Сервис: ' + (({ up: 'Онлайн', down: 'Недоступен', checking: 'Проверка…', unknown: 'Локальный' } as Record<string, string>)[statuses[link.url] ?? 'unknown'])"
+                />
+                
+                <!-- IP micro-dots -->
+                <div v-if="link.ips?.length" class="flex gap-1">
+                  <div
+                    v-for="ip in link.ips"
+                    :key="ip.addr"
+                    class="w-1.5 h-1.5 rounded-full ring-1 ring-white dark:ring-zinc-900 transition-all duration-500"
+                    :class="{
+                      'bg-green-400/80': statuses[ip.addr] === 'up',
+                      'bg-red-400/80': statuses[ip.addr] === 'down',
+                      'bg-zinc-400 animate-pulse': statuses[ip.addr] === 'checking',
+                      'bg-zinc-300 dark:bg-zinc-600': !statuses[ip.addr] || statuses[ip.addr] === 'unknown',
+                    }"
+                    :title="ip.label + ': ' + (({ up: 'Доступен', down: 'Недоступен', checking: 'Проверка…', unknown: 'Нет данных' } as Record<string, string>)[statuses[ip.addr] ?? 'unknown'])"
+                  />
+                </div>
+              </div>
               <!-- External link icon -->
               <svg class="flex-shrink-0 w-3.5 h-3.5 text-zinc-300 dark:text-zinc-600 group-hover:text-zinc-500 dark:group-hover:text-zinc-400 transition-colors duration-200" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">
                 <path d="M15 3h6v6M10 14 21 3m-3 10v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h7" />
@@ -358,6 +407,17 @@ function toggleExpand(url: string) {
             >
               <div v-for="ip in link.ips" :key="ip.addr" class="flex items-center gap-2">
                 <span class="text-xs font-medium text-zinc-400 dark:text-zinc-500 w-20 flex-shrink-0">{{ ip.label }}</span>
+                <!-- Статус-dot: TCP-пинг хоста -->
+                <span
+                  class="flex-shrink-0 w-1.5 h-1.5 rounded-full ring-1 ring-white dark:ring-zinc-900 transition-all duration-500"
+                  :class="{
+                    'bg-green-400 shadow-[0_0_5px_1px_rgba(74,222,128,0.7)]': statuses[ip.addr] === 'up',
+                    'bg-red-400': statuses[ip.addr] === 'down',
+                    'bg-zinc-400 dark:bg-zinc-500 animate-pulse': statuses[ip.addr] === 'checking',
+                    'bg-zinc-300 dark:bg-zinc-600': !statuses[ip.addr] || statuses[ip.addr] === 'unknown',
+                  }"
+                  :title="({ up: 'Доступен', down: 'Недоступен', checking: 'Проверка…', unknown: 'Нет данных' } as Record<string,string>)[statuses[ip.addr] ?? 'unknown']"
+                />
                 <code class="flex-1 text-xs font-mono text-zinc-600 dark:text-zinc-300 truncate">{{ ip.addr }}</code>
                 <button
                   class="flex-shrink-0 rounded-md p-1.5 transition-all duration-150"
