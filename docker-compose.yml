@@ -1,0 +1,7 @@
+services:
+  homelab-landing:
+    build: .
+    container_name: homelab-landing
+    restart: unless-stopped
+    ports:
+      - "4444:80"
