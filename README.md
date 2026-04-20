@@ -1,4 +1,5 @@
 # Homelab Dashboard
+<img width="500"    alt="изображение" src="https://github.com/user-attachments/assets/3c1f4367-d19e-4c86-8a33-5ec0a4491604" />
 
 Персональный дашборд для homelab-инфраструктуры — быстрый доступ ко всем сервисам с проверкой статуса.
 Наверное...
