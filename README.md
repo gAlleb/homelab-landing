@@ -35,6 +35,15 @@
 4. Сайт будет доступен на порту `4444`.
 5. Для production рекомендуется поставить за reverse proxy (например Nginx Proxy Manager) с SSL-сертификатом.
 
+### LXC (Proxmox unprivileged container) override
+В LXC Docker не может пробросить IPv6-маршруты (Yggdrasil и т.д.) в bridge-сеть
+из-за ограничений unprivileged namespace. Решение: status-api работает в host-сети
+LXC-контейнера, где все маршруты уже есть.
+Использование:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.lxc.yml up -d --build
+```
+
 ## ⚙️ Настройка ссылок
 
 Все ссылки и категории настраиваются в файле `app/composables/useLinks.ts`. 

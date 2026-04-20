@@ -1,0 +1,16 @@
+# LXC (Proxmox unprivileged container) override
+#
+# В LXC Docker не может пробросить IPv6-маршруты (Yggdrasil и т.д.) в bridge-сеть
+# из-за ограничений unprivileged namespace. Решение: status-api работает в host-сети
+# LXC-контейнера, где все маршруты уже есть.
+#
+# Использование:
+#   docker compose -f docker-compose.yml -f docker-compose.lxc.yml up -d --build
+
+services:
+  status-api:
+    network_mode: host   # использует сетевой стек LXC → видит Yggdrasil/любые IPv6-маршруты
+
+  homelab-landing:
+    extra_hosts:
+      - "status-api:host-gateway"   # nginx находит status-api через IP хоста LXC
